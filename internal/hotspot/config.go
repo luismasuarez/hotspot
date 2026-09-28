@@ -21,6 +21,18 @@ const (
 	hostapdPID  = runDir + "/hostapd.pid"
 	dnsmasqConf = runDir + "/dnsmasq.conf"
 	dnsmasqPID  = runDir + "/dnsmasq.pid"
+	leasePath   = runDir + "/dnsmasq.leases"
+	denyMACPath = runDir + "/deny.mac"
+	ctrlPath    = runDir + "/hostapd"
+
+	// policyDir/policyPath hold per-device state (names and switches) that
+	// must survive a reboot, unlike the ephemeral state under /run.
+	policyDir  = "/var/lib/hotspot"
+	policyPath = policyDir + "/clients.json"
+
+	// blockedSet is the nft set (type ether_addr) holding MACs with internet
+	// cut off, populated by 'block' and read/written by the TUI.
+	blockedSet = "blocked"
 )
 
 // Source identifies where the hotspot gets its internet from.

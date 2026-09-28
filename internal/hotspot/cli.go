@@ -31,6 +31,20 @@ func Main(args []string, out, errw io.Writer) int {
 		return cmdSources(args[1:], out, errw)
 	case "doctor":
 		return cmdDoctor(args[1:], out, errw)
+	case "tui":
+		return cmdTui(args[1:], out, errw)
+	case "clients":
+		return cmdClients(args[1:], out, errw)
+	case "block":
+		return cmdBlock(args[1:], out, errw)
+	case "unblock":
+		return cmdUnblock(args[1:], out, errw)
+	case "deny":
+		return cmdDeny(args[1:], out, errw)
+	case "allow":
+		return cmdAllow(args[1:], out, errw)
+	case "kick":
+		return cmdKick(args[1:], out, errw)
 	case "-h", "--help", "help":
 		usage(out)
 		return 0
@@ -54,6 +68,13 @@ comandos:
   qr        muestra el QR del hotspot activo
   sources   lista los orígenes de internet disponibles
   doctor    comprueba los requisitos del sistema
+  clients   lista los dispositivos conectados y su estado
+  block     corta el internet a un dispositivo (MAC o IP)
+  unblock   devuelve el internet a un dispositivo
+  deny      impide que un dispositivo se conecte
+  allow     permite que un dispositivo se conecte
+  kick      desconecta a un dispositivo ahora
+  tui       panel interactivo de gestión de dispositivos
 
 orígenes (--source):
   eth       comparte el internet del ethernet principal
@@ -307,6 +328,113 @@ func cmdDoctor(args []string, out, errw io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+func cmdClients(args []string, out, errw io.Writer) int {
+	fs := flag.NewFlagSet("clients", flag.ContinueOnError)
+	fs.SetOutput(errw)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	clients, err := ScanClients()
+	if err != nil {
+		fmt.Fprintln(errw, "error:", err)
+		return 1
+	}
+	if len(clients) == 0 {
+		fmt.Fprintln(out, "no hay dispositivos conectados")
+		return 0
+	}
+	fmt.Fprintf(out, "%-18s %-15s %-17s %5s %9s %9s %10s %8s %7s\n",
+		"MAC", "IP", "NOMBRE", "SEÑAL", "BAJADA", "SUBIDA", "CONECTADO", "INTERNET", "PERMITE")
+	for _, c := range clients {
+		fmt.Fprintf(out, "%-18s %-15s %-17s %5d %9s %9s %10s %8s %7s\n",
+			c.MAC, c.IP, c.Hostname, c.Signal,
+			humanBytes(c.RxBytes), humanBytes(c.TxBytes),
+			c.Connected.Truncate(time.Second), yesno(c.Internet), yesno(c.Allowed))
+	}
+	return 0
+}
+
+func cmdBlock(args []string, out, errw io.Writer) int {
+	return deviceToggle("block", "internet cortado a", args, out, errw, func(target string) error {
+		return SetInternet(target, false)
+	})
+}
+
+func cmdUnblock(args []string, out, errw io.Writer) int {
+	return deviceToggle("unblock", "internet restaurado a", args, out, errw, func(target string) error {
+		return SetInternet(target, true)
+	})
+}
+
+func cmdDeny(args []string, out, errw io.Writer) int {
+	return deviceToggle("deny", "acceso denegado a", args, out, errw, func(target string) error {
+		return SetAllowed(target, false)
+	})
+}
+
+func cmdAllow(args []string, out, errw io.Writer) int {
+	return deviceToggle("allow", "acceso permitido a", args, out, errw, func(target string) error {
+		return SetAllowed(target, true)
+	})
+}
+
+func cmdKick(args []string, out, errw io.Writer) int {
+	return deviceToggle("kick", "dispositivo desconectado:", args, out, errw, func(target string) error {
+		mac, err := resolveMAC(target)
+		if err != nil {
+			return err
+		}
+		return hostapdKick(mac)
+	})
+}
+
+// deviceToggle implements the shared parse/validate/apply flow of the
+// single-device commands. It requires exactly one positional target.
+func deviceToggle(name, verb string, args []string, out, errw io.Writer, apply func(string) error) int {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.SetOutput(errw)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() != 1 {
+		fmt.Fprintf(errw, "uso: hotspot %s <mac|ip>\n", name)
+		return 2
+	}
+	target := fs.Arg(0)
+	if err := apply(target); err != nil {
+		fmt.Fprintln(errw, "error:", err)
+		return 1
+	}
+	fmt.Fprintf(out, "%s %s\n", verb, target)
+	return 0
+}
+
+func cmdTui(args []string, out, errw io.Writer) int {
+	fs := flag.NewFlagSet("tui", flag.ContinueOnError)
+	fs.SetOutput(errw)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if err := RunTUI(); err != nil {
+		fmt.Fprintln(errw, "error:", err)
+		return 1
+	}
+	return 0
+}
+
+func humanBytes(n uint64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := uint64(unit), 0
+	for v := n / unit; v >= unit; v /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(n)/float64(div), "KMGTPE"[exp])
 }
 
 func defaultChannel(band string) int {

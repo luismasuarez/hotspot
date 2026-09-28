@@ -3,6 +3,7 @@ package hotspot
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"time"
 )
@@ -52,6 +53,12 @@ func LoadState() (*State, error) {
 		if os.IsNotExist(err) {
 			return nil, errNoState
 		}
+		// Without root the 0600 state file is unreadable; treat it as inactive
+		// instead of surfacing a bare "permission denied" (all the writers and
+		// the TUI already require root).
+		if os.IsPermission(err) {
+			return nil, fmt.Errorf("se requieren privilegios de root (ejecuta con sudo): %w", errNoState)
+		}
 		return nil, err
 	}
 	var s State
@@ -72,5 +79,8 @@ func removeState() {
 	_ = os.Remove(hostapdPID)
 	_ = os.Remove(dnsmasqConf)
 	_ = os.Remove(dnsmasqPID)
+	_ = os.Remove(leasePath)
+	_ = os.Remove(denyMACPath)
+	_ = os.RemoveAll(ctrlPath)
 	_ = os.Remove(runDir)
 }

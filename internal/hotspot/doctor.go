@@ -16,7 +16,7 @@ type Check struct {
 func Doctor() []Check {
 	var checks []Check
 	checks = append(checks, Check{"root", os.Geteuid() == 0, "se necesita sudo para aplicar cambios"})
-	for _, tool := range []string{"ip", "iw", "nft", "hostapd", "dnsmasq"} {
+	for _, tool := range []string{"ip", "iw", "nft", "hostapd", "hostapd_cli", "dnsmasq"} {
 		checks = append(checks, Check{"tool:" + tool, Exists(tool), "sudo apt install " + aptPackage(tool)})
 	}
 	checks = append(checks, Check{"modo AP", supportsAP(), "el chip wifi debe anunciar '* AP' en 'iw list'"})

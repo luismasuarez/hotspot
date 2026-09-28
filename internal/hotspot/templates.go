@@ -20,6 +20,12 @@ func hostapdConfig(cfg *Config, channel int) string {
 	b.WriteString("wmm_enabled=1\n")
 	b.WriteString("auth_algs=1\n")
 	b.WriteString("ignore_broadcast_ssid=0\n")
+	// Control interface for hostapd_cli (runtime MAC ACL + deauth).
+	fmt.Fprintf(&b, "ctrl_interface=%s\n", ctrlPath)
+	// macaddr_acl=0 accepts every station unless it is listed in the deny
+	// file; the 'deny' switch of the TUI/CLI manages that list at runtime.
+	b.WriteString("macaddr_acl=0\n")
+	fmt.Fprintf(&b, "deny_mac_file=%s\n", denyMACPath)
 	if !cfg.Open {
 		fmt.Fprintf(&b, "wpa=2\n")
 		fmt.Fprintf(&b, "wpa_passphrase=%s\n", cfg.Pass)
@@ -34,6 +40,7 @@ func dnsmasqConfig(cfg *Config, np NetPlan) string {
 	fmt.Fprintf(&b, "interface=%s\n", cfg.APName)
 	b.WriteString("bind-dynamic\n")
 	b.WriteString("except-interface=lo\n")
+	fmt.Fprintf(&b, "dhcp-leasefile=%s\n", leasePath)
 	fmt.Fprintf(&b, "dhcp-range=%s,%s,%s,24h\n", np.DHCPStart, np.DHCPEnd, np.Mask)
 	fmt.Fprintf(&b, "dhcp-option=3,%s\n", np.Gateway)
 	fmt.Fprintf(&b, "dhcp-option=6,%s\n", np.Gateway)
@@ -50,14 +57,18 @@ func dnsmasqConfig(cfg *Config, np NetPlan) string {
 
 func nftRuleset(ap, uplink, subnet string, mss int) string {
 	return fmt.Sprintf(`table inet hotspot {
+	set %s {
+		type ether_addr
+	}
 	chain forward {
 		type filter hook forward priority filter; policy accept;
 		iifname "%s" oifname "%s" tcp flags syn tcp option maxseg size set %d
+		iifname "%s" ether saddr @%s drop
 	}
 	chain postrouting {
 		type nat hook postrouting priority srcnat; policy accept;
 		oifname "%s" ip saddr %s masquerade
 	}
 }
-`, ap, uplink, mss, uplink, subnet)
+`, blockedSet, ap, uplink, mss, ap, blockedSet, uplink, subnet)
 }

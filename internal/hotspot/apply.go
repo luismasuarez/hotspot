@@ -32,6 +32,14 @@ func Up(cfg *Config, r *Runner) error {
 	prevForward, _ := readIPForward()
 	sil := r.silent()
 
+	// Clear any leftover daemon/AP from a previous session whose state file is
+	// gone (e.g. after a reboot or a crashed run). Otherwise hostapd fails to
+	// reconfigure an interface already held in AP mode ("Could not configure
+	// driver mode"/segfault).
+	if !cfg.DryRun {
+		stopDaemons(r)
+	}
+
 	var undo []func()
 	rollback := func() {
 		for i := len(undo) - 1; i >= 0; i-- {
@@ -53,6 +61,17 @@ func Up(cfg *Config, r *Runner) error {
 		return fail(err)
 	}
 	if err := r.writeFile(dnsmasqConf, dnsmasqConfig(cfg, np), 0o600); err != nil {
+		return fail(err)
+	}
+
+	// hostapd reads the deny MAC list at startup, so seed it from the
+	// persisted policy before the daemon starts (devices blocked in a previous
+	// session are refused from the first association).
+	denied, err := denyMACs()
+	if err != nil {
+		return fail(err)
+	}
+	if err := r.writeFile(denyMACPath, denied, 0o600); err != nil {
 		return fail(err)
 	}
 
@@ -167,6 +186,15 @@ func Up(cfg *Config, r *Runner) error {
 		fmt.Fprintf(r.Out, "  + write %s (estado, mode 0644)\n", statePath)
 	} else if err := st.Save(); err != nil {
 		return fail(err)
+	}
+
+	// Re-apply the persisted per-device policy (internet / association) to the
+	// freshly created nft set and hostapd ACL. Best effort: a failure here
+	// must not tear down a working hotspot.
+	if !cfg.DryRun {
+		if err := Reconcile(); err != nil {
+			fmt.Fprintf(r.Err, "aviso: no se pudo aplicar la política de dispositivos: %v\n", err)
+		}
 	}
 
 	fmt.Fprintf(r.Out, "\nhotspot activo\n")
@@ -285,10 +313,42 @@ func killByPIDFile(path string) {
 	if err != nil {
 		return
 	}
-	if p, err := os.FindProcess(pid); err == nil {
+	// Only signal if the process is really the daemon we launched; a reused PID
+	// must never be killed.
+	if p, err := os.FindProcess(pid); err == nil && procMatches(path, pid) {
 		_ = p.Signal(syscall.SIGTERM)
 	}
 	_ = os.Remove(path)
+}
+
+// procMatches reports whether the process holding pid was started with conf as
+// its first argument (e.g. "hostapd ... /run/hotspot/hostapd.conf"), so a stale
+// PID file cannot take down an unrelated process.
+func procMatches(conf string, pid int) bool {
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ReplaceAll(string(b), "\x00", " "), conf)
+}
+
+// killDaemons stops hostapd and dnsmasq by their PID files, tolerating a
+// missing file by matching the freshly launched process via procMatches.
+// It is used by 'up' before taking over the interface and by 'down'. Must run
+// as root to see the processes.
+func killDaemons() {
+	killByPIDFile(hostapdPID)
+	killByPIDFile(dnsmasqPID)
+}
+
+// stopDaemons forcefully stops the hotspot daemons. Besides the PID files it
+// also matches by the run-dir config path, so an AP left over from a previous
+// session whose PID file is gone (or was never written) cannot keep holding the
+// interface in AP mode.
+func stopDaemons(r *Runner) {
+	killDaemons()
+	_ = r.Run("", "pkill", "-f", hostapdConf)
+	_ = r.Run("", "pkill", "-f", dnsmasqConf)
 }
 
 func aptPackage(tool string) string {
@@ -297,6 +357,8 @@ func aptPackage(tool string) string {
 		return "iproute2"
 	case "nft":
 		return "nftables"
+	case "hostapd_cli":
+		return "hostapd"
 	default:
 		return tool
 	}

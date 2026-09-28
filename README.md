@@ -28,6 +28,13 @@ sudo hotspot up --source vpn --ssid WIFI_GRATIS
 sudo hotspot qr                           # reimprime el QR del hotspot activo
 sudo hotspot qr --png ~/wifi.png          # además guarda el PNG
 sudo hotspot status
+sudo hotspot tui                          # panel interactivo de dispositivos
+hotspot clients                           # lista dispositivos conectados
+sudo hotspot block <mac|ip>               # corta el internet a un dispositivo
+sudo hotspot unblock <mac|ip>             # le devuelve el internet
+sudo hotspot deny <mac|ip>                # impide que se conecte
+sudo hotspot allow <mac|ip>               # vuelve a permitirlo
+sudo hotspot kick <mac|ip>                # lo desconecta ahora
 sudo hotspot down                         # revierte todos los cambios
 ```
 
@@ -55,6 +62,37 @@ Flags de `up`:
 | `--qr-invert` | `false` | invertir colores del QR (temas oscuros) |
 | `--qr-png <ruta>` | — | guardar además el QR como PNG |
 | `--dry-run` | `false` | solo imprime los comandos |
+
+## Gestión de dispositivos (TUI)
+
+`sudo hotspot tui` abre un panel interactivo que **auto-refresca cada ~2 s** y
+muestra los dispositivos conectados: nombre, IP, MAC, señal, tráfico
+(bajada/subida) y tiempo conectado. Por cada dispositivo ofrece dos
+interruptores y una acción:
+
+| Acción | Efecto |
+|--------|--------|
+| **Internet ON/OFF** | corta o restaura el internet sin expulsar al dispositivo del AP |
+| **Permitir conexión ON/OFF** | permite o deniega que el dispositivo se asocie al AP |
+| **kick** | lo desconecta ahora mismo |
+
+El estado de cada dispositivo se guarda en `/var/lib/hotspot/clients.json`
+(0600) y **persiste entre reinicios**; al levantar el hotspot se reaplica
+(`Reconcile`), a diferencia del estado efímero de `/run`.
+
+Los mismos controles existen sin TUI: `clients`, `block`, `unblock`, `deny`,
+`allow` y `kick` (ver "Uso").
+
+**Mecanismos de bloqueo** (independientes y combinables):
+
+1. **Internet OFF** — nft añade la MAC al set `blocked` (tipo `ether_addr`) de
+   `table inet hotspot`; la regla `iifname <ap> ether saddr @blocked drop`
+   descarta su tráfico. El dispositivo **sigue asociado** y el DNS local sigue
+   respondiendo: es intencional.
+2. **Permitir OFF (deny)** — hostapd añade la MAC a su lista de denegados (MAC
+   ACL: `macaddr_acl=0` + `deny_mac_file`) y lo expulsa con `hostapd_cli
+   deauthenticate`.
+3. **kick** — solo `hostapd_cli deauthenticate`, sin cambiar la política.
 
 ## Cómo funciona (red)
 
@@ -98,6 +136,10 @@ make test       # go test ./...
 make vet        # go vet ./...
 make install    # instala en /usr/local/bin
 ```
+
+- Requiere Go **>= 1.26.2** (fijado en `go.mod`).
+- Dependencias: `github.com/skip2/go-qrcode` (QR) y, para la TUI, Bubble Tea
+  v1.3.10, Bubbles v1.0.0 y Lip Gloss v1.1.0 (línea estable v1).
 
 ## Notas
 

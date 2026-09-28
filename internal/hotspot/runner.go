@@ -80,3 +80,13 @@ func Exists(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
 }
+
+// runCmd executes name with args, discarding all output. It is used for
+// best-effort runtime management (nft elements, hostapd ACL) where the caller
+// only cares about success/failure.
+func runCmd(name string, args ...string) error {
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	return cmd.Run()
+}

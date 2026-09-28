@@ -1,6 +1,7 @@
 package hotspot
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 )
@@ -9,11 +10,16 @@ import (
 func Down(r *Runner) error {
 	st, err := LoadState()
 	if err != nil {
+		if errors.Is(err, errNoState) {
+			// No state file, but a daemon from a crashed/rebooted session may
+			// still hold the AP interface. Clean it up before reporting idle.
+			stopDaemons(r)
+			return err
+		}
 		return err
 	}
 	fmt.Fprintln(r.Out, "deteniendo hotspot...")
-	killByPIDFile(dnsmasqPID)
-	killByPIDFile(hostapdPID)
+	stopDaemons(r)
 	_ = r.Run("", "nft", "delete", "table", "inet", "hotspot")
 	if st.APName != "" && st.Uplink != "" {
 		chain := st.FWChain
