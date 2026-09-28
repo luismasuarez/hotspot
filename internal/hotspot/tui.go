@@ -76,11 +76,12 @@ type tuiModel struct {
 	state   *State
 	active  bool
 
-	status   string
-	help     bool
-	mode     tuiMode
-	busy     bool
-	startLog string
+	status    string
+	help      bool
+	mode      tuiMode
+	busy      bool
+	startLog  string
+	qrPending bool // show the QR overlay once a start launched from the TUI finishes
 
 	sp spinner.Model
 
@@ -510,6 +511,7 @@ func (m *tuiModel) beginStart() tea.Cmd {
 	m.busy = true
 	m.status = "levantando..."
 	m.startLog = ""
+	m.qrPending = true
 	return func() tea.Msg {
 		var buf bytes.Buffer
 		err := Up(cfg, NewRunner(false, &buf, &buf))
@@ -519,6 +521,7 @@ func (m *tuiModel) beginStart() tea.Cmd {
 
 func (m *tuiModel) stopCmd() tea.Cmd {
 	m.busy = true
+	m.qrPending = false
 	m.status = "deteniendo..."
 	m.mode = modeClients
 	return func() tea.Msg {
@@ -541,9 +544,18 @@ func (m tuiModel) handleOpDone(msg opDoneMsg) (tea.Model, tea.Cmd) {
 	m.startLog = ""
 	m.applyRefresh(loadSnapshot())
 	if m.active {
-		m.mode = modeClients
-		m.status = "listo"
+		// A start launched from the panel jumps straight to the QR so the phone
+		// can be connected without hunting for the key.
+		if m.qrPending {
+			m.qrPending = false
+			m.mode = modeWifi
+			m.status = "escanea el QR para conectar el móvil"
+		} else {
+			m.mode = modeClients
+			m.status = "listo"
+		}
 	} else {
+		m.qrPending = false
 		m.mode = modeStart
 		m.status = "detenido"
 	}
@@ -761,6 +773,14 @@ func (m tuiModel) headerView() string {
 			ssid, m.state.Source, m.state.Uplink, len(m.clients)))
 		lines = append(lines, fmt.Sprintf("inicio: %s   uptime: %s",
 			m.state.StartedAt.Format("15:04:05"), humanDur(time.Since(m.state.StartedAt))))
+		if m.state.Open {
+			lines = append(lines, tuiDimStyle.Render("contraseña: (abierta)   —   QR y contraseña: pulsa w"))
+		} else if m.state.Pass != "" {
+			lines = append(lines, fmt.Sprintf("contraseña: %s   %s", m.state.Pass,
+				tuiDimStyle.Render("—")+"   QR: pulsa w"))
+		} else {
+			lines = append(lines, tuiDimStyle.Render("QR y contraseña: pulsa w"))
+		}
 	} else {
 		lines = append(lines, tuiDimStyle.Render("sin hotspot en marcha"))
 	}
@@ -898,7 +918,7 @@ func (m tuiModel) wifiView() string {
 	}
 	st := m.state
 	var b strings.Builder
-	b.WriteString(tuiTitleStyle.Render("información wifi"))
+	b.WriteString(tuiTitleStyle.Render("QR para conectarse (escanea con el móvil)"))
 	b.WriteString("\n\n")
 	fmt.Fprintf(&b, "ssid:   %s\n", st.SSID)
 	if st.Open {
@@ -931,7 +951,7 @@ func (m tuiModel) footerView() string {
 	if m.mode == modeStart {
 		return tuiDimStyle.Render("↑/↓ origen · tab campo · espacio abierta · enter arrancar · esc volver · q salir")
 	}
-	return tuiDimStyle.Render("↑/↓ mover · i internet · b permitir · x expulsar · n renombrar · r refrescar · w wifi · s arrancar/parar · ? ayuda · q salir")
+	return tuiDimStyle.Render("↑/↓ mover · w QR/contraseña · i internet · b permitir · x expulsar · n renombrar · r refrescar · s arrancar/parar · ? ayuda · q salir")
 }
 
 func (m tuiModel) helpView() string {
@@ -943,7 +963,7 @@ func (m tuiModel) helpView() string {
 		"  x          expulsar el dispositivo ahora",
 		"  n          renombrar el dispositivo",
 		"  r          refrescar la lista",
-		"  w          ver ssid, contraseña y QR",
+		"  w          ver el QR y la contraseña",
 		"  s          arrancar o detener el hotspot",
 		"  ?          ocultar esta ayuda",
 		"  q          salir",
