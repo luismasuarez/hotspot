@@ -165,8 +165,12 @@ Restaura el sistema: borra cualquier regla/estado temporal al terminar
   ASSOC_REQ) y a veces el SSID no se ve; el driver loguea `failed to download drv
   rsvd page` / `error beacon valid` / `AMD-Vi IO_PAGE_FAULT`. Workaround
   persistido en `/etc/modprobe.d/rtw88.conf`: `options rtw88_core
-  disable_lps_deep=1` + `options rtw88_pci disable_aspm=1`. Tras recargar el
-  driver, el cliente asocia y obtiene DHCP.
+  disable_lps_deep=1` + `options rtw88_pci disable_aspm=1`. El driver **se
+  degrada con el tiempo** aunque estén los params (vuelve el síntoma auth-sin-
+  assoc), así que `hotspot up` lo **recarga automáticamente** antes de arrancar
+  hostapd (`resetWiFiDriver` en `apply.go`, solo para drivers `rtw88*`); los
+  params se reaplican en cada recarga. El `hostapd.log` (nivel INFO) no registra
+  eventos de estación: para verlos, lanzar hostapd con `-dd`.
 - El equipo enruta todo por política a la WG (tabla 51825). No asumas el nombre
   de la VPN ni el id de tabla: usa `hotspot sources` / la detección.
 

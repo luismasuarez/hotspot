@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -75,7 +76,6 @@ func Up(cfg *Config, r *Runner) error {
 		return fail(err)
 	}
 
-	wifiWasUp := interfaceUp(cfg.WiFiIface)
 	wasManaged := nmManaged(cfg.WiFiIface)
 	if err := r.Run("", "nmcli", "dev", "set", cfg.WiFiIface, "managed", "no"); err != nil {
 		return fail(err)
@@ -85,6 +85,10 @@ func Up(cfg *Config, r *Runner) error {
 			_ = sil.Run("", "nmcli", "dev", "set", cfg.WiFiIface, "managed", "yes")
 		})
 	}
+	if !cfg.DryRun {
+		resetWiFiDriver(r, cfg.WiFiIface)
+	}
+	wifiWasUp := interfaceUp(cfg.WiFiIface)
 	if err := r.Run("", "ip", "link", "set", cfg.WiFiIface, "up"); err != nil {
 		return fail(err)
 	}
@@ -314,6 +318,45 @@ func nmManaged(iface string) bool {
 		return false
 	}
 	return !strings.Contains(raw, "unmanaged")
+}
+
+// resetWiFiDriver reloads the wireless driver when it is a Realtek rtw88 one.
+// That driver degrades after a while in AP mode: clients authenticate but never
+// complete association (they retry auth and send deauth reason 3). A module
+// reload restores a clean firmware state. It is a no-op for other drivers and
+// best-effort on failure, so it never blocks 'up'.
+func resetWiFiDriver(r *Runner, iface string) {
+	drv := driverName(iface)
+	if !strings.HasPrefix(drv, "rtw88") {
+		return
+	}
+	fmt.Fprintf(r.Out, "reiniciando driver %s (workaround modo AP)\n", drv)
+	_ = r.Run("", "ip", "link", "set", iface, "down")
+	if err := r.Run("", "modprobe", "-r", drv); err != nil {
+		fmt.Fprintf(r.Err, "aviso: no se pudo descargar %s: %v\n", drv, err)
+		return
+	}
+	if err := r.Run("", "modprobe", drv); err != nil {
+		fmt.Fprintf(r.Err, "aviso: no se pudo recargar %s: %v\n", drv, err)
+		return
+	}
+	// The interface disappears while the module is unloaded; wait for it back.
+	for i := 0; i < 40; i++ {
+		if _, err := os.Stat("/sys/class/net/" + iface); err == nil {
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	fmt.Fprintf(r.Err, "aviso: %s no reapareció tras recargar %s\n", iface, drv)
+}
+
+// driverName returns the kernel driver bound to iface (e.g. "rtw88_8822ce").
+func driverName(iface string) string {
+	link, err := os.Readlink("/sys/class/net/" + iface + "/device/driver")
+	if err != nil {
+		return ""
+	}
+	return filepath.Base(link)
 }
 
 // waitAPUp polls the interface until the kernel reports it as an AP carrying
