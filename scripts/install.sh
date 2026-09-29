@@ -46,13 +46,31 @@ case "$(uname -m)" in
     *) die "arquitectura no soportada: $(uname -m)" ;;
 esac
 
-command -v gh >/dev/null 2>&1 || die "falta 'gh' (GitHub CLI). Instálalo y ejecuta 'gh auth login'."
+# Descarga un asset del release: curl para repos públicos, gh como fallback.
+download() {
+    asset_name="$1"; dest_dir="$2"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "https://github.com/$REPO/releases/download/v$VERSION/$asset_name" \
+            -o "$dest_dir/$asset_name" 2>/dev/null && return 0
+    fi
+    if command -v gh >/dev/null 2>&1; then
+        gh release download "v$VERSION" --repo "$REPO" --pattern "$asset_name" --dir "$dest_dir" && return 0
+    fi
+    return 1
+}
 
 # --- resolución de la versión ------------------------------------------------
 if [ -z "$VERSION" ]; then
-    VERSION=$(gh release view --repo "$REPO" --json tagName -q .tagName 2>/dev/null) \
-        || VERSION=$(gh release list --repo "$REPO" --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null) \
-        || die "no hay releases en $REPO; pasa una versión: ./scripts/install.sh v0.2.0"
+    if command -v gh >/dev/null 2>&1; then
+        VERSION=$(gh release view --repo "$REPO" --json tagName -q .tagName 2>/dev/null) \
+            || VERSION=$(gh release list --repo "$REPO" --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null) \
+            || VERSION=""
+    fi
+    if [ -z "$VERSION" ] && command -v curl >/dev/null 2>&1; then
+        VERSION=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null \
+            | grep -m1 '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
+    fi
+    [ -n "$VERSION" ] || die "no pude resolver la última versión; pasa una: ./scripts/install.sh v0.2.0"
 fi
 VERSION="${VERSION#v}" # por si pasan vX.Y.Z
 
@@ -60,17 +78,17 @@ asset="hotspot_${VERSION}_${os}_${arch}.tar.gz"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-say "→ descargando hotspot $VERSION ($os/$arch) vía gh"
-gh release download "v$VERSION" --repo "$REPO" --pattern "$asset" --dir "$tmp" \
-    || die "no se pudo descargar $asset del release v$VERSION"
+say "→ descargando hotspot $VERSION ($os/$arch)"
+download "$asset" "$tmp" || die "no se pudo descargar $asset del release v$VERSION"
 
 # checksums (si el release los publica)
-if gh release download "v$VERSION" --repo "$REPO" --pattern checksums.txt --dir "$tmp" 2>/dev/null; then
+if download checksums.txt "$tmp"; then
     if command -v sha256sum >/dev/null 2>&1; then
         ( cd "$tmp" && grep " $asset\$" checksums.txt | sha256sum -c - >/dev/null ) \
             || die "el checksum de $asset no coincide"
         say "✓ checksum verificado"
     fi
+    rm -f "$tmp/checksums.txt"
 fi
 
 tar -xzf "$tmp/$asset" -C "$tmp"

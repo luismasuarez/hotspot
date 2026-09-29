@@ -6,7 +6,12 @@ re-descubrir cosas que ya costaron una sesión entera.
 ## Qué es
 CLI en Go que crea un punto de acceso wifi y **comparte un origen de internet**
 seleccionable: `eth` (`enp2s0`), `wifi` (`wlp3s0`) o `vpn` (WireGuard de
-NetworkManager `8nternational`). Repo privado: `github.com/luismasuarez/hotspot`.
+NetworkManager `8nternational`). Repo público: `github.com/luismasuarez/hotspot`.
+
+**Solo Linux** (orquesta `hostapd`/`dnsmasq`/`nft`/`ip`/`iw` y usa `/proc`,
+`/sys`). No portar a Windows ni macOS: no hay backend de red equivalente. El
+release solo publica artefactos `linux`/`darwin` (darwin compila pero no es
+funcional).
 
 Sin dependencias externas salvo `github.com/skip2/go-qrcode` (QR) y las librerías
 de TUI fijadas a la línea estable v1: `github.com/charmbracelet/bubbletea`
