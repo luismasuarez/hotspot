@@ -128,18 +128,61 @@ Los mismos controles existen sin TUI: `clients`, `block`, `unblock`, `deny`,
 - Permisos de root (`sudo`) para aplicar cambios.
 - Chip wifi que soporte modo AP (comprueba con `hotspot doctor`).
 
-## Build
+## Instalación
+
+El repo es privado, así que la descarga usa `gh` (GitHub CLI) autenticado
+(`gh auth login`). El instalador coloca el binario en `~/.local/bin` y, si hay
+fish, la función y las completions — todo **sin sudo**:
+
+```sh
+# desde el clone
+./scripts/install.sh              # última release
+./scripts/install.sh v0.2.0       # versión concreta
+./scripts/install.sh --uninstall
+
+# o directamente desde el repo (repo privado => gh)
+curl -sSL https://raw.githubusercontent.com/luismasuarez/hotspot/main/scripts/install.sh | sh
+```
+
+Alternativas:
+
+```sh
+make install-local   # compila e instala binario + fish en el HOME (sin sudo)
+go install github.com/luismasuarez/hotspot/cmd/hotspot@latest   # nativo de Go
+make install         # sistema completo en /usr/local/bin (necesita sudo)
+```
+
+Con el binario en el PATH ya no hace falta navegar a la carpeta:
+
+```sh
+hotspot version
+sudo hotspot doctor
+sudo hotspot up --source vpn --ssid WIFI_GRATIS
+sudo hotspot tui
+```
+
+## Build y releases
 
 ```sh
 make build      # binario estático ./hotspot
 make test       # go test ./...
 make vet        # go vet ./...
-make install    # instala en /usr/local/bin
+make snapshot   # artefactos de release locales (tar.gz/deb/rpm) sin publicar
 ```
 
 - Requiere Go **>= 1.26.2** (fijado en `go.mod`).
 - Dependencias: `github.com/skip2/go-qrcode` (QR) y, para la TUI, Bubble Tea
   v1.3.10, Bubbles v1.0.0 y Lip Gloss v1.1.0 (línea estable v1).
+
+Las releases se publican con **GoReleaser** desde GitHub Actions al empujar un
+tag semántico:
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0     # CI compila linux/darwin/windows × amd64/arm64,
+                           # genera tar.gz + .deb + .rpm + checksums y crea
+                           # un release en borrador para revisar
+```
 
 ## Notas
 
@@ -147,3 +190,4 @@ make install    # instala en /usr/local/bin
   lo que limita el rendimiento. El tool avisa del canal usado.
 - `down` depende del estado en `/run`; tras un reinicio, si quedara algo a medias,
   limpia manualmente la tabla nft `inet hotspot` y la regla `ip rule`.
+

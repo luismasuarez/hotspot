@@ -31,6 +31,9 @@ func Main(args []string, out, errw io.Writer) int {
 		return cmdSources(args[1:], out, errw)
 	case "doctor":
 		return cmdDoctor(args[1:], out, errw)
+	case "version", "--version", "-v":
+		fmt.Fprintf(out, "hotspot %s\n", Version())
+		return 0
 	case "tui":
 		return cmdTui(args[1:], out, errw)
 	case "clients":
@@ -68,6 +71,7 @@ comandos:
   qr        muestra el QR del hotspot activo
   sources   lista los orígenes de internet disponibles
   doctor    comprueba los requisitos del sistema
+  version   muestra la versión del binario
   clients   lista los dispositivos conectados y su estado
   block     corta el internet a un dispositivo (MAC o IP)
   unblock   devuelve el internet a un dispositivo

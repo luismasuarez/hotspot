@@ -1,0 +1,84 @@
+# GoReleaser: paquete único multi-plataforma para hotspot.
+# Uso local: `make snapshot` (sin publicar) o `make release` (necesita GITHUB_TOKEN).
+version: 2
+
+project_name: hotspot
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: hotspot
+    main: ./cmd/hotspot
+    binary: hotspot
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -buildvcs=false
+      - -trimpath
+    ldflags:
+      - -s -w -X github.com/luismasuarez/hotspot/internal/hotspot.version={{.Version}}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+      - README.md
+      - functions/hotspot.fish
+      - completions/hotspot.fish
+      - scripts/install.sh
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+
+nfpms:
+  - id: packages
+    package_name: hotspot
+    file_name_template: "{{ .ConventionalFileName }}"
+    vendor: luisasuarez
+    homepage: https://github.com/luismasuarez/hotspot
+    maintainer: Luis Suarez <luisma@localhost>
+    description: |-
+      Punto de acceso wifi que comparte un origen de internet concreto
+      (ethernet, wifi o VPN) con gestión de dispositivos por MAC.
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    contents:
+      - src: completions/hotspot.fish
+        dst: /usr/share/fish/vendor_completions.d/hotspot.fish
+      - src: functions/hotspot.fish
+        dst: /usr/share/fish/vendor_functions.d/hotspot.fish
+      - src: LICENSE
+        dst: /usr/share/doc/hotspot/LICENSE
+      - src: README.md
+        dst: /usr/share/doc/hotspot/README.md
+
+release:
+  draft: true
+  prerelease: auto
+  name_template: "hotspot {{.Version}}"

@@ -763,7 +763,7 @@ func (m tuiModel) headerView() string {
 		statusStyle = tuiOnStyle
 	}
 	var lines []string
-	lines = append(lines, tuiTitleStyle.Render("hotspot")+" · "+statusStyle.Render(status))
+	lines = append(lines, tuiTitleStyle.Render("hotspot")+" · "+statusStyle.Render(status)+tuiDimStyle.Render("  "+Version()))
 	if m.active && m.state != nil {
 		ssid := m.state.SSID
 		if ssid == "" {
