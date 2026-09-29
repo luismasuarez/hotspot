@@ -19,6 +19,7 @@ const (
 	statePath   = runDir + "/state.json"
 	hostapdConf = runDir + "/hostapd.conf"
 	hostapdPID  = runDir + "/hostapd.pid"
+	hostapdLog  = runDir + "/hostapd.log"
 	dnsmasqConf = runDir + "/dnsmasq.conf"
 	dnsmasqPID  = runDir + "/dnsmasq.pid"
 	leasePath   = runDir + "/dnsmasq.leases"
@@ -29,6 +30,11 @@ const (
 	// must survive a reboot, unlike the ephemeral state under /run.
 	policyDir  = "/var/lib/hotspot"
 	policyPath = policyDir + "/clients.json"
+
+	// settingsPath persists the last SSID/passphrase chosen in the TUI so a
+	// restart reuses them instead of generating a new random password (which
+	// would invalidate the credentials already saved on the clients).
+	settingsPath = policyDir + "/settings.json"
 
 	// blockedSet is the nft set (type ether_addr) holding MACs with internet
 	// cut off, populated by 'block' and read/written by the TUI.

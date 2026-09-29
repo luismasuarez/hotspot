@@ -51,6 +51,7 @@ gofmt -l .     # debe estar vacío
 | `internal/hotspot/policy.go` | política por MAC en `/var/lib/hotspot/clients.json` + `Reconcile` |
 | `internal/hotspot/acl.go` | set nft `blocked` y MAC ACL de hostapd (`deny_acl`, `deauthenticate`) |
 | `internal/hotspot/tui.go` | panel TUI (Bubble Tea): dispositivos e interruptores |
+| `internal/hotspot/settings.go` | SSID/passphrase persistidos de la TUI (`/var/lib/hotspot/settings.json`) |
 
 ## Invariantes críticos (NO romper)
 
@@ -97,6 +98,18 @@ gofmt -l .     # debe estar vacío
    debe sobrevivir reinicios (a diferencia de `state.json`). No la borres en
    `down`.
 
+9. **El AP se verifica tras arrancar.** `hostapd -B` daemoniza **antes** de
+   configurar el BSS, así que un fallo de arranque era silencioso (el `up` decía
+   "activo" con el AP muerto). `apply.go` lanza hostapd con `-f
+   /run/hotspot/hostapd.log` y `waitAPUp` comprueba vía `iw dev <ap> info` que
+   hay `type AP` + `ssid <SSID>` (o que el proceso sigue vivo); si no, falla `up`
+   mostrando el log. No lances hostapd sin esta verificación.
+
+10. **Passphrase estable en la TUI.** `settings.go` persiste SSID/pass/open en
+    `/var/lib/hotspot/settings.json` (0600) y la TUI los reutiliza al abrir el
+    panel. No vuelvas a generar una contraseña aleatoria en cada arranque: deja
+    obsoleto el perfil guardado en los móviles y estos fallan al asociarse.
+
 ## Diagnóstico rápido (evitar re-análisis)
 ```sh
 sudo hotspot status; cat /run/hotspot/state.json
@@ -116,6 +129,12 @@ ip route get 10.42.42.20 from 10.42.42.1                # -> dev <ap> table 4242
 # DNS
 dig @10.42.42.1 google.com
 tcpdump -i any -n port 53         # respuestas dnsmasq deben salir por wlp3s0, NO por 8nternational
+
+# AP / asociación de clientes
+iw dev wlp3s0 info                # debe decir: type AP + ssid + channel
+iw dev wlp3s0 station dump        # vacío => nadie asociado
+cat /run/hotspot/hostapd.log      # motivo real de fallo de hostapd (si aplica)
+journalctl -k | grep -i "rtw88\|beacon valid" | tail   # salud del driver wifi
 
 # DHCP
 cat /run/hotspot/dnsmasq.leases
@@ -141,13 +160,21 @@ Restaura el sistema: borra cualquier regla/estado temporal al terminar
   `#channels<=1`) · `8nternational` WireGuard NM (`172.16.1.3/32`, MTU 1420,
   DNS 8.8.8.8) · `tailscale0`.
 - `hostapd` **no** viene instalado por defecto (`sudo apt install hostapd`).
+- La wifi es una **Realtek RTL8822CE** (`rtw88_8822ce`), **inestable en modo AP**.
+  Síntoma clásico: el móvil autentica (open system OK) pero **no asocia** (sin
+  ASSOC_REQ) y a veces el SSID no se ve; el driver loguea `failed to download drv
+  rsvd page` / `error beacon valid` / `AMD-Vi IO_PAGE_FAULT`. Workaround
+  persistido en `/etc/modprobe.d/rtw88.conf`: `options rtw88_core
+  disable_lps_deep=1` + `options rtw88_pci disable_aspm=1`. Tras recargar el
+  driver, el cliente asocia y obtiene DHCP.
 - El equipo enruta todo por política a la WG (tabla 51825). No asumas el nombre
   de la VPN ni el id de tabla: usa `hotspot sources` / la detección.
 
 ## No hacer
 - No tocar `ip_forward`, policies globales ni reglas de Docker/Tailscale.
 - No hardcodear `8nternational`/tabla `51825`; detectar.
-- No editar `/etc` ni dejar reglas tras diagnosticar.
+- No editar `/etc` ni dejar reglas tras diagnosticar. (Excepción ya aplicada con
+  permiso: `/etc/modprobe.d/rtw88.conf` para el driver wifi.)
 - No commitear el binario `hotspot` (está en `.gitignore`).
 - No añadir dependencias (solo `go-qrcode` y la línea TUI v1: bubbletea,
   bubbles, lipgloss).

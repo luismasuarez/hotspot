@@ -77,6 +77,7 @@ func removeState() {
 	_ = os.Remove(statePath)
 	_ = os.Remove(hostapdConf)
 	_ = os.Remove(hostapdPID)
+	_ = os.Remove(hostapdLog)
 	_ = os.Remove(dnsmasqConf)
 	_ = os.Remove(dnsmasqPID)
 	_ = os.Remove(leasePath)

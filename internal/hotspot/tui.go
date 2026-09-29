@@ -400,7 +400,6 @@ func (m *tuiModel) resetInputs() {
 	m.ssid = textinput.New()
 	m.ssid.Prompt = "  "
 	m.ssid.Placeholder = defaultSSID
-	m.ssid.SetValue(defaultSSID)
 	m.ssid.CharLimit = 32
 
 	m.pass = textinput.New()
@@ -413,7 +412,16 @@ func (m *tuiModel) resetInputs() {
 	m.rename.Prompt = "  "
 	m.rename.CharLimit = 32
 
-	m.open = false
+	// Reuse the last SSID/passphrase so clients that saved the profile keep
+	// working across restarts instead of seeing a new random password.
+	s := LoadSettings()
+	if s.SSID != "" {
+		m.ssid.SetValue(s.SSID)
+	} else {
+		m.ssid.SetValue(defaultSSID)
+	}
+	m.pass.SetValue(s.Pass)
+	m.open = s.Open
 	m.startLog = ""
 }
 
@@ -486,6 +494,7 @@ func (m *tuiModel) beginStart() tea.Cmd {
 			pass = randomPassword(12)
 		}
 	}
+	_ = SaveSettings(Settings{SSID: ssid, Pass: pass, Open: m.open})
 
 	cfg := &Config{
 		Source:    kind,

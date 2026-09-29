@@ -153,10 +153,22 @@ func Up(cfg *Config, r *Runner) error {
 	}
 	undo = append(undo, func() { _ = sil.Run("", "sysctl", "-qw", "net.ipv4.ip_forward="+prevForward) })
 
-	if err := r.Run("", "hostapd", "-B", "-P", hostapdPID, hostapdConf); err != nil {
+	// hostapd -B forks before configuring the AP, so its stdout is lost and a
+	// startup failure would otherwise be silent. Keep a log (-f) and verify the
+	// BSS actually came up; if not, fail 'up' and surface the log.
+	if err := r.Run("", "hostapd", "-f", hostapdLog, "-B", "-P", hostapdPID, hostapdConf); err != nil {
 		return fail(err)
 	}
 	undo = append(undo, func() { killByPIDFile(hostapdPID) })
+	_ = os.Chmod(hostapdLog, 0o600)
+	if !cfg.DryRun {
+		if err := waitAPUp(cfg); err != nil {
+			if tail := hostapdLogTail(); tail != "" {
+				fmt.Fprintf(r.Err, "\nlog de hostapd:\n%s\n", tail)
+			}
+			return fail(fmt.Errorf("el AP no quedó operativo: %w", err))
+		}
+	}
 
 	if err := r.Run("", "dnsmasq", "-C", dnsmasqConf, "-x", dnsmasqPID); err != nil {
 		return fail(err)
@@ -302,6 +314,68 @@ func nmManaged(iface string) bool {
 		return false
 	}
 	return !strings.Contains(raw, "unmanaged")
+}
+
+// waitAPUp polls the interface until the kernel reports it as an AP carrying
+// our SSID. It fails early if the hostapd process died, converting the silent
+// post-daemonize failure of `hostapd -B` into a visible error.
+func waitAPUp(cfg *Config) error {
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if pid, err := readPID(hostapdPID); err == nil && !pidAlive(pid) {
+			return fmt.Errorf("hostapd terminó durante el arranque")
+		}
+		if apReady(cfg.APName, cfg.SSID) {
+			return nil
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	return fmt.Errorf("%s no alcanzó el estado AP con ssid %q", cfg.APName, cfg.SSID)
+}
+
+// apReady reports whether `iw dev <ap> info` shows an AP BSS with ssid.
+func apReady(ap, ssid string) bool {
+	raw, err := output("iw", "dev", ap, "info")
+	if err != nil {
+		return false
+	}
+	typeAP, ssidOK := false, false
+	for _, line := range strings.Split(raw, "\n") {
+		switch strings.TrimSpace(line) {
+		case "type AP":
+			typeAP = true
+		case "ssid " + ssid:
+			ssidOK = true
+		}
+	}
+	return typeAP && ssidOK
+}
+
+// readPID reads an integer PID from a file.
+func readPID(path string) (int, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(string(b)))
+}
+
+// pidAlive reports whether a process with pid exists.
+func pidAlive(pid int) bool {
+	return pid > 0 && syscall.Kill(pid, 0) == nil
+}
+
+// hostapdLogTail returns the last lines of the hostapd log, for diagnosis.
+func hostapdLogTail() string {
+	b, err := os.ReadFile(hostapdLog)
+	if err != nil {
+		return ""
+	}
+	lines := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	if len(lines) > 15 {
+		lines = lines[len(lines)-15:]
+	}
+	return strings.Join(lines, "\n")
 }
 
 func killByPIDFile(path string) {
