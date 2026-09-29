@@ -51,6 +51,7 @@ command -v gh >/dev/null 2>&1 || die "falta 'gh' (GitHub CLI). Instálalo y ejec
 # --- resolución de la versión ------------------------------------------------
 if [ -z "$VERSION" ]; then
     VERSION=$(gh release view --repo "$REPO" --json tagName -q .tagName 2>/dev/null) \
+        || VERSION=$(gh release list --repo "$REPO" --limit 1 --json tagName -q '.[0].tagName' 2>/dev/null) \
         || die "no hay releases en $REPO; pasa una versión: ./scripts/install.sh v0.2.0"
 fi
 VERSION="${VERSION#v}" # por si pasan vX.Y.Z
