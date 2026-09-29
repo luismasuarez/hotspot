@@ -170,7 +170,10 @@ Restaura el sistema: borra cualquier regla/estado temporal al terminar
   assoc), así que `hotspot up` lo **recarga automáticamente** antes de arrancar
   hostapd (`resetWiFiDriver` en `apply.go`, solo para drivers `rtw88*`); los
   params se reaplican en cada recarga. El `hostapd.log` (nivel INFO) no registra
-  eventos de estación: para verlos, lanzar hostapd con `-dd`.
+  eventos de estación: para verlos, lanzar hostapd con `-dd`. **Ojo:** la recarga
+  del driver (o el arranque del BSS) **tira la IP del gateway** de wlp3s0, y
+  dnsmasq se queda sin dirección (`DHCP packet received ... which has no
+  address`); `up` la reafirma tras arrancar hostapd con `ensureGatewayAddr`.
 - El equipo enruta todo por política a la WG (tabla 51825). No asumas el nombre
   de la VPN ni el id de tabla: usa `hotspot sources` / la detección.
 

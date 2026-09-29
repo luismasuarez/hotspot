@@ -113,7 +113,7 @@ func Up(cfg *Config, r *Runner) error {
 	if err := r.Run("", "ip", "link", "set", cfg.APName, "up"); err != nil {
 		return fail(err)
 	}
-	if err := r.Run("", "ip", "addr", "add", np.GatewayCIDR(), "dev", cfg.APName); err != nil {
+	if err := ensureGatewayAddr(r, cfg.APName, np.GatewayCIDR()); err != nil {
 		return fail(err)
 	}
 	undo = append(undo, func() { _ = sil.Run("", "ip", "addr", "del", np.GatewayCIDR(), "dev", cfg.APName) })
@@ -171,6 +171,12 @@ func Up(cfg *Config, r *Runner) error {
 				fmt.Fprintf(r.Err, "\nlog de hostapd:\n%s\n", tail)
 			}
 			return fail(fmt.Errorf("el AP no quedó operativo: %w", err))
+		}
+		// Reloading the driver (rtw88 workaround) or bringing up the BSS can
+		// flush the interface addresses; re-assert the gateway IP before
+		// dnsmasq starts, or it has no address to serve DHCP from.
+		if err := ensureGatewayAddr(r, cfg.APName, np.GatewayCIDR()); err != nil {
+			return fail(err)
 		}
 	}
 
@@ -392,6 +398,24 @@ func apReady(ap, ssid string) bool {
 		}
 	}
 	return typeAP && ssidOK
+}
+
+// ensureGatewayAddr adds cidr to iface unless it is already configured, so it
+// is safe to call repeatedly (e.g. before and after starting hostapd).
+func ensureGatewayAddr(r *Runner, iface, cidr string) error {
+	if addressPresent(iface, cidr) {
+		return nil
+	}
+	return r.Run("", "ip", "addr", "add", cidr, "dev", iface)
+}
+
+// addressPresent reports whether cidr is already assigned to iface.
+func addressPresent(iface, cidr string) bool {
+	raw, err := output("ip", "-o", "addr", "show", "dev", iface)
+	if err != nil {
+		return false
+	}
+	return strings.Contains(raw, cidr)
 }
 
 // readPID reads an integer PID from a file.
